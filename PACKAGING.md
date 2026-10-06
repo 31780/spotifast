@@ -156,3 +156,32 @@ their original signatures; this setup does not replace release assets.
 `packaging/release-names.py DIST TAG` checks the release's `spotifast-`
 downloads and writes their checksums. Run `python3 packaging/test-release-names.py`
 when changing this step. Published historical downloads are never rewritten.
+
+## Releases from this fork
+
+`31780/spotifast` publishes its own Windows installers and portable ZIPs,
+macOS universal DMGs, and Linux portable archives through `release.yml`.
+It uses a separate Ed25519 public key in `assets/update-public-key.hex`.
+The matching PEM private key belongs only in the `release-signing` environment’s
+`SPOTIFAST_UPDATE_SIGNING_KEY` secret and a protected offline backup. Never commit it.
+Restrict that environment to `v*` tags. Do not replace the key after shipping
+a release without planning how existing installations will migrate.
+
+For a test release, use a version such as `0.12.1-rc.1`. Update Cargo.toml,
+Cargo.lock, the Nix vendor hash, Flatpak metainfo and written release notes.
+Push main and wait for CI, including Nix, before pushing the matching `v*` tag.
+The tag workflow signs and verifies the checksums before publishing.
+Verify every promised download, its checksum and the release notes afterward.
+
+Prereleases do not publish the website, Homebrew or AUR. This fork has no
+downstream repository destinations in native-packages.yaml. Its packaging
+validation workflow needs an explicit, already-published fork version rather
+than the upstream fixture; run it manually with a stable fork release to
+validate optional DEB, RPM and AppImage formats. The shared workflow also
+validates downstream recipes, which the packaging tool does not support for
+prereleases.
+
+Apple signing credentials are not configured for the initial test release, so
+macOS bundles have an ad-hoc signature and no notarization. Windows installers
+have no Authenticode signature. Signed release checksums are a separate check.
+See the README for installation and Spotify login limitations.

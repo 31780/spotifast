@@ -39,6 +39,9 @@ permissions:
 
 jobs:
   packaging:
+    # The upstream fixture is not a release on forks. Validate a fork's own
+    # published stable version with workflow_dispatch.
+    if: ${{ github.repository == 'crmne/spotifast' || inputs.version != '' }}
     permissions:
       contents: write
     uses: crmne/native-packages/.github/workflows/package.yml@999768410cf53cdc68c8679c09cb14de1a6bca7b # v0.8.1

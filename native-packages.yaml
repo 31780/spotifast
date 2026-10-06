@@ -12,8 +12,8 @@ libraries:
     rpm: alsa-lib
 nfpm:
   name: spotifast
-  maintainer: Carmine Paolino <carmine@paolino.me>
-  homepage: https://github.com/crmne/spotifast
+  maintainer: nino <128777309+31780@users.noreply.github.com>
+  homepage: https://github.com/31780/spotifast
   description: A native Spotify client
   license: MIT
   contents:
@@ -127,7 +127,7 @@ targets:
       local: dist/spotifast-v@VERSION@-aarch64-unknown-linux-gnu.tar.gz
       release_asset: spotifast-v@VERSION@-aarch64-unknown-linux-gnu.tar.gz
 release:
-  repository: crmne/spotifast
+  repository: 31780/spotifast
   prereleases: true
   checksums: checksums.txt
 assets:
@@ -151,48 +151,6 @@ templates:
   arch/spotifast-git/PKGBUILD: packaging/arch/spotifast-git/PKGBUILD.in
   arch/spotifast-git/spotifast-git.install: packaging/arch/spotifast.install
   homebrew/spotifast.rb: packaging/homebrew/spotifast.rb.in
-repositories:
-  aur-source:
-    group: aur
-    url: https://aur.archlinux.org/spotifast.git
-    push_url: ssh://aur@aur.archlinux.org/spotifast.git
-    branch: master
-    package_path: "."
-    files:
-      arch/spotifast: "."
-    version_file: ".SRCINFO"
-    version_pattern: "^\\s*pkgver = (\\S+)"
-    publish: push
-  aur-bin:
-    group: aur
-    url: https://aur.archlinux.org/spotifast-bin.git
-    push_url: ssh://aur@aur.archlinux.org/spotifast-bin.git
-    branch: master
-    package_path: "."
-    files:
-      arch/spotifast-bin: "."
-    version_file: ".SRCINFO"
-    version_pattern: "^\\s*pkgver = (\\S+)"
-    publish: push
-  aur-git:
-    group: aur
-    url: https://aur.archlinux.org/spotifast-git.git
-    push_url: ssh://aur@aur.archlinux.org/spotifast-git.git
-    branch: master
-    package_path: "."
-    files:
-      arch/spotifast-git: "."
-    version_file: ".SRCINFO"
-    version_pattern: "^\\s*pkgver = (\\S+)"
-    publish: push
-  homebrew:
-    url: https://github.com/crmne/homebrew-tap.git
-    push_url: https://github.com/crmne/homebrew-tap.git
-    branch: main
-    package_path: Casks
-    files:
-      homebrew/spotifast.rb: Casks/spotifast.rb
-    version_file: Casks/spotifast.rb
-    version_pattern: version "([^"]+)"
-    publish: push
+# This fork distributes through GitHub Releases only.
+repositories: {}
 version_file: Cargo.toml

@@ -137,7 +137,9 @@ current-track pickup.
   is also in the application menu.
 
   On Windows, macOS, and Linux, downloading an update fetches release metadata and
-  `checksums.txt` and `checksums.txt.sig` from the project's GitHub release.
+  `checksums.txt` and `checksums.txt.sig` from `31780/spotifast` on GitHub.
+  This fork uses its own release signing key and does not install upstream updates.
+  Prereleases must be downloaded manually; automatic checks offer stable releases.
   Spotifast requires a valid Ed25519 publisher signature using its embedded release
   key before downloading the matching binary archive, Windows installer, or
   universal macOS DMG. Missing or invalid signatures stop the update.

@@ -23,9 +23,9 @@
   </description>
   <launchable type="desktop-id">rocks.spotifast.Spotifast.desktop</launchable>
   <url type="homepage">https://spotifast.rocks/</url>
-  <url type="bugtracker">https://github.com/crmne/spotifast/issues</url>
+  <url type="bugtracker">https://github.com/31780/spotifast/issues</url>
   <url type="help">https://spotifast.rocks/getting-started/</url>
-  <url type="vcs-browser">https://github.com/crmne/spotifast</url>
+  <url type="vcs-browser">https://github.com/31780/spotifast</url>
   <screenshots>
     <screenshot type="default">
       <caption>A playlist, with the queue open and a track playing on a remote speaker</caption>
@@ -50,6 +50,9 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.12.1-rc.1" date="2026-10-06" type="development">
+      <url>https://github.com/31780/spotifast/releases/tag/v0.12.1-rc.1</url>
+    </release>
     <release version="0.12.0" date="2026-10-03">
       <url>https://github.com/crmne/spotifast/releases/tag/v0.12.0</url>
     </release>

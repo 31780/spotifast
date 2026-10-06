@@ -18,11 +18,11 @@ pub const CONFIG: UpdateConfig = UpdateConfig {
         executable_names: &["Spotifast"],
         legacy_bundle_names: &[],
     },
-    // Releases have carried this signature since 0.10.2. Verify it before
+    // This fork signs its releases with its own key. Verify it before
     // the updater downloads or executes any new application code.
     publisher_key: Some(include_str!("../assets/update-public-key.hex")),
     ..UpdateConfig::new(
-        "crmne/spotifast",
+        "31780/spotifast",
         "Spotifast",
         "spotifast",
         env!("CARGO_PKG_VERSION"),
@@ -43,6 +43,7 @@ mod tests {
     fn update_config_is_valid() {
         CONFIG.validate().unwrap();
         assert_eq!(CONFIG.current_version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(CONFIG.repository, "31780/spotifast");
         assert_eq!(
             CONFIG.publisher_key,
             Some(include_str!("../assets/update-public-key.hex"))
@@ -136,7 +137,7 @@ mod tests {
                 .download(
                     &Release {
                         version: "9.9.9".into(),
-                        url: "https://github.com/crmne/spotifast/releases/tag/v9.9.9".into(),
+                        url: "https://github.com/31780/spotifast/releases/tag/v9.9.9".into(),
                     },
                     |_, _| {},
                 )
