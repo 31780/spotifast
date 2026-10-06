@@ -22,7 +22,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
@@ -64,6 +64,8 @@ pub const WEB_SCOPES: &[&str] = &[
 const AUTHORIZE_URL: &str = "https://accounts.spotify.com/authorize";
 const TOKEN_URL: &str = "https://accounts.spotify.com/api/token";
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const REDIRECT_TIMEOUT: Duration = Duration::from_secs(3);
+const REDIRECT_LINE_LIMIT: usize = 8 * 1024;
 /// Refresh this long before the access token expires.
 const REFRESH_MARGIN: Duration = Duration::from_secs(90);
 
@@ -163,50 +165,62 @@ pub struct TokenResponse {
 pub async fn wait_for_code(
     port: u16,
     expected_state: &str,
-    mut cancel: watch::Receiver<bool>,
+    cancel: watch::Receiver<bool>,
 ) -> Result<String> {
     let address: SocketAddr = ([127, 0, 0, 1], port).into();
     let listener = TcpListener::bind(address)
         .await
         .with_context(|| format!("unable to listen on {address} for the Spotify redirect"))?;
-    let deadline = tokio::time::sleep(LOGIN_TIMEOUT);
-    tokio::pin!(deadline);
+    wait_on_listener(listener, expected_state, cancel).await
+}
 
-    loop {
-        let (mut stream, _) = tokio::select! {
-            accepted = listener.accept() => accepted.context("redirect listener failed")?,
-            _ = cancel.changed() => {
-                if *cancel.borrow() { bail!("sign-in cancelled"); }
-                continue;
+async fn wait_on_listener(
+    listener: TcpListener,
+    expected_state: &str,
+    mut cancel: watch::Receiver<bool>,
+) -> Result<String> {
+    // Cover the entire exchange, including reads and writes to an accepted
+    // connection. A closed cancellation channel also ends an abandoned flow.
+    tokio::select! {
+        biased;
+        _ = cancel.wait_for(|cancelled| *cancelled) => bail!("sign-in cancelled"),
+        outcome = tokio::time::timeout(LOGIN_TIMEOUT, async {
+            loop {
+                let (mut stream, _) = listener.accept().await.context("redirect listener failed")?;
+                match tokio::time::timeout(REDIRECT_TIMEOUT, answer_redirect(&mut stream, expected_state)).await {
+                    Ok(Ok(code)) => return Ok(code),
+                    Ok(Err(error)) => log::debug!("ignored request on the redirect listener: {error}"),
+                    Err(_) => log::debug!("ignored stalled request on the redirect listener"),
+                }
             }
-            _ = &mut deadline => bail!("sign-in timed out; try again"),
-        };
-
-        let mut reader = BufReader::new(&mut stream);
-        let mut request_line = String::new();
-        if reader.read_line(&mut request_line).await.is_err() {
-            continue;
-        }
-        let outcome = parse_request_line(&request_line, expected_state);
-        let (status, body) = match &outcome {
-            Ok(_) => ("200 OK", success_page()),
-            Err(error) => ("400 Bad Request", failure_page(&error.to_string())),
-        };
-        let response = format!(
-            "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
-            body.len()
-        );
-        let _ = stream.write_all(response.as_bytes()).await;
-        let _ = stream.shutdown().await;
-        match outcome {
-            Ok(code) => return Ok(code),
-            Err(error) => {
-                // A favicon request or a stale tab is not the redirect; keep waiting.
-                log::debug!("ignored request on the redirect listener: {error}");
-                continue;
-            }
-        }
+        }) => outcome.context("sign-in timed out; try again")?,
     }
+}
+
+async fn answer_redirect(
+    stream: &mut (impl AsyncRead + AsyncWrite + Unpin),
+    expected_state: &str,
+) -> Result<String> {
+    let mut reader = BufReader::new((&mut *stream).take((REDIRECT_LINE_LIMIT + 1) as u64));
+    let mut request_line = Vec::new();
+    reader.read_until(b'\n', &mut request_line).await?;
+    if request_line.len() > REDIRECT_LINE_LIMIT || !request_line.ends_with(b"\n") {
+        bail!("invalid redirect request length");
+    }
+    let request_line =
+        std::str::from_utf8(&request_line).context("invalid redirect request encoding")?;
+    let outcome = parse_request_line(request_line, expected_state);
+    let (status, body) = match &outcome {
+        Ok(_) => ("200 OK", success_page()),
+        Err(error) => ("400 Bad Request", failure_page(&error.to_string())),
+    };
+    let response = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = stream.write_all(response.as_bytes()).await;
+    let _ = stream.shutdown().await;
+    outcome
 }
 
 fn parse_request_line(line: &str, expected_state: &str) -> Result<String> {
@@ -480,6 +494,106 @@ fn failure_page(reason: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn oversized_redirect_is_rejected_before_the_sender_finishes() {
+        let (mut sender, mut receiver) = tokio::io::duplex(REDIRECT_LINE_LIMIT + 1);
+        sender
+            .write_all(&vec![b'x'; REDIRECT_LINE_LIMIT + 1])
+            .await
+            .unwrap();
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            answer_redirect(&mut receiver, "expected-state"),
+        )
+        .await
+        .expect("oversized request must not wait for a newline");
+        assert!(result.unwrap_err().to_string().contains("length"));
+    }
+
+    #[tokio::test]
+    async fn redirect_response_still_accepts_a_matching_code() {
+        let (mut sender, mut receiver) = tokio::io::duplex(4096);
+        sender
+            .write_all(b"GET /login?code=dummy-code&state=expected-state HTTP/1.1\r\n")
+            .await
+            .unwrap();
+        assert_eq!(
+            answer_redirect(&mut receiver, "expected-state")
+                .await
+                .unwrap(),
+            "dummy-code"
+        );
+        let mut response = String::new();
+        sender.read_to_string(&mut response).await.unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(!response.contains("dummy-code"));
+    }
+
+    #[tokio::test]
+    async fn cancellation_interrupts_a_stalled_redirect_connection() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut client = tokio::net::TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        client.write_all(b"GET /login?").await.unwrap();
+        let (cancel, receiver) = watch::channel(false);
+        let task = tokio::spawn(wait_on_listener(listener, "expected-state", receiver));
+        tokio::task::yield_now().await;
+        cancel.send(true).unwrap();
+        let error = tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .expect("cancellation must interrupt socket IO")
+            .unwrap()
+            .unwrap_err();
+        assert!(error.to_string().contains("cancelled"));
+    }
+
+    #[tokio::test]
+    async fn abandoned_sign_in_is_cancelled_when_its_sender_is_dropped() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (cancel, receiver) = watch::channel(false);
+        drop(cancel);
+        let error = tokio::time::timeout(
+            Duration::from_secs(1),
+            wait_on_listener(listener, "expected-state", receiver),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert!(error.to_string().contains("cancelled"));
+    }
+
+    #[tokio::test]
+    async fn stalled_client_does_not_prevent_the_next_redirect() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let mut stalled = tokio::net::TcpStream::connect(address).await.unwrap();
+        stalled.write_all(b"GET /login?").await.unwrap();
+        let (_cancel, receiver) = watch::channel(false);
+        let task = tokio::spawn(wait_on_listener(listener, "expected-state", receiver));
+        let mut valid = tokio::net::TcpStream::connect(address).await.unwrap();
+        valid
+            .write_all(b"GET /login?code=dummy-code&state=expected-state HTTP/1.1\r\n")
+            .await
+            .unwrap();
+        let result = tokio::time::timeout(REDIRECT_TIMEOUT + Duration::from_secs(2), task)
+            .await
+            .expect("stalled client must be dropped")
+            .unwrap()
+            .unwrap();
+        assert_eq!(result, "dummy-code");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn login_deadline_expires_without_a_redirect() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (_cancel, receiver) = watch::channel(false);
+        let error = wait_on_listener(listener, "expected-state", receiver)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("timed out"));
+    }
+
     #[test]
     fn token_errors_never_include_authorization_response_contents() {
         for (status, body) in [
