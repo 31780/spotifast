@@ -31,6 +31,11 @@ consent dialog. The playback session uses the account ID verified by either
 Web API grant. A verified personal app can complete sign-in while the shared
 app's verification is still waiting.
 
+Playback debug and trace message bodies are redacted before they reach the log
+file or stderr, including when `RUST_LOG` enables trace output. Those protocol
+diagnostics can contain usable Spotify tokens. Normal playback status and error
+messages remain available.
+
 Since 0.8.0, local playback retains the artist IDs
 already supplied by librespot. Artist links in the player bar work before the
 Web API's track metadata arrives, without an extra request.

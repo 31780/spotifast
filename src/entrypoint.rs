@@ -433,6 +433,7 @@ pub(crate) fn run() -> eframe::Result<()> {
     if let Err(error) = fastframe_log::Logging::new("spotifast", env!("CARGO_PKG_VERSION"))
         .filter(default_filter)
         .file(dirs.log_file())
+        .redact(spotifast::util::redact_playback_log)
         .panic_log(dirs.panic_log())
         .panic_message(fastframe_log::PanicMessage::Redacted(
             fastframe_log::redact::links,

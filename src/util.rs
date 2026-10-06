@@ -4,6 +4,18 @@ use std::borrow::Cow;
 
 use crate::i18n::{Locale, gettext, ngettext, pgettext};
 
+/// Protocol diagnostics can contain tokens and raw authorization payloads.
+/// Redact them even when RUST_LOG enables dependency debug/trace output.
+/// Keep normal playback warnings and status messages useful for bug reports.
+pub fn redact_playback_log(record: &log::Record<'_>, _: &str) -> Option<Cow<'static, str>> {
+    let target = record.target();
+    let playback = target == "librespot"
+        || target.starts_with("librespot::")
+        || target.starts_with("librespot_");
+    (playback && record.level() > log::Level::Info)
+        .then_some(Cow::Borrowed("[playback protocol diagnostic redacted]"))
+}
+
 /// `3:45` for track lengths, `1:02:03` past an hour.
 pub fn format_duration_ms(ms: u32) -> String {
     let total = ms / 1000;
@@ -377,6 +389,41 @@ pub(crate) fn replace_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn playback_tokens_are_redacted_even_with_trace_logging() {
+        let token = crate::auth::TokenResponse {
+            access_token: "dummy-access-secret".into(),
+            refresh_token: Some("dummy-refresh-secret".into()),
+            expires_in: None,
+            scope: None,
+        };
+        let message = format!("Got auth token: {token:?}");
+        for target in [
+            "librespot_core::login5",
+            "librespot_core::token",
+            "librespot::protocol",
+        ] {
+            for level in [log::Level::Debug, log::Level::Trace] {
+                let record = log::Record::builder().target(target).level(level).build();
+                let line = redact_playback_log(&record, &message).expect("sensitive diagnostic");
+                assert!(!line.contains("dummy-access-secret"));
+                assert!(!line.contains("dummy-refresh-secret"));
+            }
+        }
+    }
+
+    #[test]
+    fn playback_redaction_preserves_actionable_errors_and_app_diagnostics() {
+        for (target, level) in [
+            ("librespot_core::session", log::Level::Warn),
+            ("librespot_playback::player", log::Level::Info),
+            ("spotifast::auth", log::Level::Debug),
+        ] {
+            let record = log::Record::builder().target(target).level(level).build();
+            assert!(redact_playback_log(&record, "connection failed").is_none());
+        }
+    }
 
     fn pixel(rgba: &[u8], size: usize, x: usize, y: usize) -> [u8; 4] {
         let index = (y * size + x) * 4;
