@@ -37,6 +37,13 @@ is Spotifast's sibling. Both are built on
 
 ## Contributing
 
+This checkout includes security hardening for signed updates, playback log
+redaction, and bounded browser sign-in callbacks. See
+[How it connects](docs/_reference/how-it-connects.md) for the details.
+When using this patched fork, build from its source: installing an upstream
+release through the updater can replace the fork's changes. Automatic update
+downloads remain off by default.
+
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue or pull
 request. To look at the interface without a Spotify account, run
 `cargo run --features demo -- --demo`. Translations live in `assets/i18n/`;
